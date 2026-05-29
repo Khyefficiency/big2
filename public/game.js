@@ -332,7 +332,6 @@ function connect() {
 
   S.socket.on('room:update', (state) => {
     renderLobby(state);
-    if (S.isHost) renderLobby(state); // re-render for host too
   });
 
   S.socket.on('room:player_left', ({ roomState }) => {

@@ -272,7 +272,7 @@ function buildScoreBoard(room) {
   return room.players.map(p => ({
     name: p.name,
     score: room.scores[p.id] ?? 0,
-  })).sort((a, b) => a.score - b.score);
+  })).sort((a, b) => b.score - a.score); // highest score first (winner on top)
 }
 
 // ─── Start ────────────────────────────────────────────────────────────────────

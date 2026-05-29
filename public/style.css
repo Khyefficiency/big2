@@ -189,10 +189,9 @@ html, body {
 .game-board {
   display: grid;
   grid-template-columns: 160px 1fr 160px;
-  grid-template-rows: 1fr;
+  grid-template-rows: 150px 1fr;   /* row 1: top opp, row 2: table */
   flex: 1;
   overflow: hidden;
-  align-items: center;
   padding: 8px;
   gap: 8px;
   position: relative;
@@ -231,17 +230,16 @@ html, body {
   max-width: 120px;
 }
 
-/* Top opponent sits above the table */
+/* Top opponent — row 1, center column */
 .opp-top {
   grid-column: 2;
   grid-row: 1;
-  align-self: start;
-  padding-top: 4px;
+  align-self: center;
 }
 
-/* Left & right opponents */
-.opp-left  { grid-column: 1; grid-row: 1; }
-.opp-right { grid-column: 3; grid-row: 1; }
+/* Left & right opponents — span both rows so they sit full height */
+.opp-left  { grid-column: 1; grid-row: 1 / 3; align-self: center; }
+.opp-right { grid-column: 3; grid-row: 1 / 3; align-self: center; }
 
 /* Face-down card stacks */
 .opp-cards {
@@ -272,7 +270,7 @@ html, body {
 /* Table / centre */
 .table-area {
   grid-column: 2;
-  grid-row: 1;
+  grid-row: 2;
   display: flex;
   flex-direction: column;
   align-items: center;
