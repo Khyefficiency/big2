@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Big 2 · Chor Dai Di 鋤大弟</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ── Landing ─────────────────────────────────────────────────── -->
+  <div id="screen-landing" class="screen active">
+    <div class="landing-card">
+      <h1 class="game-title">🃏 Chor Dai Di</h1>
+      <p class="game-subtitle">鋤大弟 · Big 2 · 4 Players</p>
+      <div class="form-group">
+        <label for="input-name">Your name</label>
+        <input id="input-name" type="text" maxlength="20" placeholder="Enter your name" autocomplete="off" />
+      </div>
+      <div class="landing-buttons">
+        <button id="btn-create" class="btn btn-primary">Create Room</button>
+        <div class="or-divider">or</div>
+        <div class="join-row">
+          <input id="input-code" type="text" maxlength="4" placeholder="ROOM CODE" autocomplete="off" />
+          <button id="btn-join" class="btn btn-secondary">Join</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Lobby ──────────────────────────────────────────────────── -->
+  <div id="screen-lobby" class="screen">
+    <div class="lobby-card">
+      <h2>Room <span id="lobby-code" class="room-code-display"></span></h2>
+      <p class="lobby-hint">Share this code with your friends</p>
+      <div id="lobby-players" class="lobby-players"></div>
+      <div class="lobby-status" id="lobby-status">Waiting for players… (0/4)</div>
+      <button id="btn-start" class="btn btn-primary" disabled>Start Game</button>
+      <p id="lobby-host-hint" class="hint-text hidden">Only the host can start</p>
+    </div>
+  </div>
+
+  <!-- ── Game ───────────────────────────────────────────────────── -->
+  <div id="screen-game" class="screen">
+
+    <!-- Score bar -->
+    <div class="score-bar" id="score-bar"></div>
+
+    <!-- Board -->
+    <div class="game-board">
+
+      <!-- Top opponent -->
+      <div class="opp-slot opp-top" id="opp-top">
+        <div class="opp-inner">
+          <div class="opp-name" id="opp-top-name">—</div>
+          <div class="opp-cards" id="opp-top-cards"></div>
+          <div class="opp-badge" id="opp-top-badge"></div>
+        </div>
+      </div>
+
+      <!-- Left opponent -->
+      <div class="opp-slot opp-left" id="opp-left">
+        <div class="opp-inner">
+          <div class="opp-name" id="opp-left-name">—</div>
+          <div class="opp-cards" id="opp-left-cards"></div>
+          <div class="opp-badge" id="opp-left-badge"></div>
+        </div>
+      </div>
+
+      <!-- Table / centre -->
+      <div class="table-area" id="table-area">
+        <div id="table-label" class="table-label">Waiting to start…</div>
+        <div id="table-cards" class="table-cards"></div>
+        <div id="table-played-by" class="table-played-by"></div>
+      </div>
+
+      <!-- Right opponent -->
+      <div class="opp-slot opp-right" id="opp-right">
+        <div class="opp-inner">
+          <div class="opp-name" id="opp-right-name">—</div>
+          <div class="opp-cards" id="opp-right-cards"></div>
+          <div class="opp-badge" id="opp-right-badge"></div>
+        </div>
+      </div>
+
+    </div><!-- /game-board -->
+
+    <!-- My hand -->
+    <div class="my-section">
+      <div id="my-hand" class="my-hand"></div>
+      <div class="action-bar">
+        <button id="btn-play" class="btn btn-play" disabled>Play (<span id="play-count">0</span>)</button>
+        <button id="btn-pass" class="btn btn-pass" disabled>Pass</button>
+        <div id="turn-msg" class="turn-msg"></div>
+      </div>
+    </div>
+
+  </div><!-- /screen-game -->
+
+  <!-- ── Game Over ───────────────────────────────────────────────── -->
+  <div id="screen-gameover" class="screen">
+    <div class="gameover-card">
+      <div class="winner-banner" id="winner-banner"></div>
+      <table class="score-table" id="score-table">
+        <thead>
+          <tr>
+            <th>Player</th>
+            <th>Cards left</th>
+            <th>This round</th>
+            <th>Total score</th>
+          </tr>
+        </thead>
+        <tbody id="score-tbody"></tbody>
+      </table>
+      <div class="gameover-buttons">
+        <button id="btn-rematch" class="btn btn-primary hidden">Play Again</button>
+        <button id="btn-leave" class="btn btn-secondary">Leave</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Toast ──────────────────────────────────────────────────── -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>

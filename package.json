@@ -1,0 +1,18 @@
+{
+  "name": "big2",
+  "version": "1.0.0",
+  "description": "Big 2 (Chor Dai Di) multiplayer card game",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node test-logic.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.7.2"
+  }
+}
