@@ -465,3 +465,85 @@ html, body {
 }
 .toast.error  { border-color: #ff6b6b; color: #ff9999; }
 .toast.success { border-color: var(--active); color: #adffd4; }
+
+/* ── Mobile responsive ─────────────────────────────────────────── */
+@media (max-width: 600px) {
+
+  /* Shrink side columns so centre gets breathing room */
+  .game-board {
+    grid-template-columns: 100px 1fr 100px;
+    grid-template-rows: 120px 1fr;
+    padding: 4px;
+    gap: 4px;
+  }
+
+  .opp-inner {
+    min-width: 86px;
+    padding: 8px 6px;
+    gap: 4px;
+  }
+
+  .opp-name {
+    font-size: .75rem;
+    max-width: 80px;
+  }
+
+  .opp-badge { font-size: .65rem; }
+
+  /* Smaller card backs for opponents */
+  .card-back {
+    width: 16px;
+    height: 24px;
+    border-radius: 3px;
+  }
+
+  .opp-cards { max-width: 80px; gap: 1px; }
+
+  /* Smaller cards in hand and on table */
+  :root {
+    --card-w:  44px;
+    --card-h:  62px;
+    --card-rad: 5px;
+  }
+
+  .card .corner .rank  { font-size: 12px; }
+  .card .corner .suit  { font-size: 9px; }
+  .card .center-suit   { font-size: 20px; }
+
+  /* Tighter overlap in hand — fits 13 cards on narrow screen */
+  .my-hand .card { margin-right: -22px; }
+
+  /* Score bar wraps on small screens */
+  .score-bar {
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    font-size: .75rem;
+    padding: 4px 10px;
+  }
+
+  /* Action bar stacks on very small screens */
+  .action-bar {
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+  }
+
+  .turn-msg { font-size: .78rem; padding: 4px 10px; }
+
+  .btn { padding: 8px 16px; font-size: 14px; }
+
+  /* Game over card fits mobile */
+  .gameover-card {
+    width: 95vw;
+    padding: 24px 16px;
+  }
+
+  .score-table { font-size: .8rem; }
+  .score-table th, .score-table td { padding: 7px 4px; }
+
+  /* Landing / lobby cards fit width */
+  .landing-card, .lobby-card {
+    width: 92vw;
+    padding: 28px 20px;
+  }
+}
