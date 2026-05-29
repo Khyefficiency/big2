@@ -12,28 +12,21 @@ const app    = express();
 const server = http.createServer(app);
 const io     = new Server(server, {
   cors: { origin: '*' },
+  pingTimeout:  60000,   // 60s — tolerate slow/flaky connections
+  pingInterval: 25000,   // ping every 25s
 });
 
 const PORT = process.env.PORT || 3000;
 
-// Serve static files from /public
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ─── Room Store ───────────────────────────────────────────────────────────────
 
-/**
- * rooms: Map<roomCode, Room>
- *
- * Room shape:
- * {
- *   code: string,
- *   players: [{ id: socketId, name: string, seatIndex: number }],
- *   game: GameState | null,
- *   status: 'waiting' | 'playing' | 'finished',
- *   scores: { [socketId]: number },   // running point tally across rounds
- * }
- */
 const rooms = new Map();
+
+// Grace-period timers: old socketId → setTimeout handle
+// When a player drops we wait 30s before actually removing them.
+const reconnectTimers = new Map();
 
 function generateRoomCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -46,12 +39,10 @@ function generateRoomCode() {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Send each player only their own hand; everyone gets public state. */
 function broadcastGameState(room) {
   const { game, players, code } = room;
   if (!game) return;
 
-  // Public state — no private hands
   const publicState = {
     currentPlayerIndex: game.currentPlayerIndex,
     tableHand: game.tableHand,
@@ -68,7 +59,6 @@ function broadcastGameState(room) {
     })),
   };
 
-  // Send each connected player their private hand
   for (let i = 0; i < players.length; i++) {
     const seated = players[i];
     const socket = io.sockets.sockets.get(seated.id);
@@ -98,6 +88,13 @@ function roomLobbyState(room) {
   };
 }
 
+function buildScoreBoard(room) {
+  return room.players.map(p => ({
+    name: p.name,
+    score: room.scores[p.id] ?? 0,
+  })).sort((a, b) => b.score - a.score);
+}
+
 // ─── Socket Events ────────────────────────────────────────────────────────────
 
 io.on('connection', (socket) => {
@@ -105,9 +102,7 @@ io.on('connection', (socket) => {
 
   // ── Create Room ──────────────────────────────────────────────────────────
   socket.on('room:create', ({ name }, callback) => {
-    if (!name || typeof name !== 'string') {
-      return callback({ error: 'Name is required.' });
-    }
+    if (!name || typeof name !== 'string') return callback({ error: 'Name is required.' });
     const trimmed = name.trim().slice(0, 20);
     const code = generateRoomCode();
 
@@ -146,6 +141,53 @@ io.on('connection', (socket) => {
     io.to(code).emit('room:update', roomLobbyState(room));
   });
 
+  // ── Reconnect (after a drop) ─────────────────────────────────────────────
+  socket.on('room:reconnect', ({ code, name }, callback) => {
+    const room = rooms.get(code?.toUpperCase().trim());
+    if (!room) return callback?.({ error: 'Room not found.' });
+
+    const playerIndex = room.players.findIndex(p => p.name === name);
+    if (playerIndex === -1) return callback?.({ error: 'Player not found in room.' });
+
+    const player = room.players[playerIndex];
+    const oldId  = player.id;
+
+    // Cancel the eviction timer
+    if (reconnectTimers.has(oldId)) {
+      clearTimeout(reconnectTimers.get(oldId));
+      reconnectTimers.delete(oldId);
+    }
+
+    // Re-map socket ID everywhere
+    player.id = socket.id;
+    if (room.game) {
+      const gp = room.game.players.find(p => p.id === oldId);
+      if (gp) gp.id = socket.id;
+    }
+    if (room.scores[oldId] !== undefined) {
+      room.scores[socket.id] = room.scores[oldId];
+      delete room.scores[oldId];
+    }
+
+    socket.join(code);
+    console.log(`[room] ${name} reconnected to room ${code}`);
+
+    callback?.({
+      success:    true,
+      seatIndex:  player.seatIndex,
+      isHost:     playerIndex === 0,
+      roomStatus: room.status,
+    });
+
+    if (room.status === 'playing' && room.game) {
+      broadcastGameState(room);
+    } else {
+      io.to(code).emit('room:update', roomLobbyState(room));
+    }
+
+    io.to(code).emit('room:player_reconnected', { name });
+  });
+
   // ── Start Game ───────────────────────────────────────────────────────────
   socket.on('game:start', (_, callback) => {
     const room = getRoomForSocket(socket.id);
@@ -169,14 +211,11 @@ io.on('connection', (socket) => {
     if (!room || !room.game) return callback?.({ error: 'No active game.' });
 
     const result = applyMove(room.game, socket.id, cards);
-    if (!result.success) {
-      return callback?.({ error: result.reason });
-    }
+    if (!result.success) return callback?.({ error: result.reason });
 
     broadcastGameState(room);
 
     if (result.finished) {
-      // Calculate round settlement using the points system
       const allPlayers = room.game.players.map((gp, i) => ({
         id: gp.id,
         cardCount: gp.cardCount,
@@ -184,12 +223,10 @@ io.on('connection', (socket) => {
       }));
       const deltas = calculateRoundScores(socket.id, allPlayers);
 
-      // Apply deltas to running scores
       for (const [id, delta] of Object.entries(deltas)) {
         room.scores[id] = (room.scores[id] || 0) + delta;
       }
 
-      // Build detailed breakdown for the end-of-round screen
       const breakdown = allPlayers.map(p => ({
         name: p.name,
         id: p.id,
@@ -216,15 +253,13 @@ io.on('connection', (socket) => {
     if (!room || !room.game) return callback?.({ error: 'No active game.' });
 
     const result = applyMove(room.game, socket.id, null);
-    if (!result.success) {
-      return callback?.({ error: result.reason });
-    }
+    if (!result.success) return callback?.({ error: result.reason });
 
     broadcastGameState(room);
     callback?.({ success: true });
   });
 
-  // ── Play Again ───────────────────────────────────────────────────────────
+  // ── Rematch ───────────────────────────────────────────────────────────────
   socket.on('game:rematch', (_, callback) => {
     const room = getRoomForSocket(socket.id);
     if (!room) return callback?.({ error: 'Not in a room.' });
@@ -246,34 +281,39 @@ io.on('connection', (socket) => {
     const room = getRoomForSocket(socket.id);
     if (!room) return;
 
-    room.players = room.players.filter(p => p.id !== socket.id);
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player) return;
 
-    if (room.players.length === 0) {
-      // Empty room — clean up
-      rooms.delete(room.code);
-      console.log(`[room] Room ${room.code} deleted (empty)`);
-    } else {
-      // Notify remaining players
+    console.log(`[room] ${player.name} dropped — waiting 30s for reconnect`);
+    io.to(room.code).emit('room:player_dropped', { name: player.name });
+
+    // Give 30 seconds to reconnect before evicting
+    const timer = setTimeout(() => {
+      reconnectTimers.delete(socket.id);
+
+      // Still gone — evict
+      room.players = room.players.filter(p => p.id !== socket.id);
+
+      if (room.players.length === 0) {
+        rooms.delete(room.code);
+        console.log(`[room] Room ${room.code} deleted (empty)`);
+        return;
+      }
+
       io.to(room.code).emit('room:player_left', { roomState: roomLobbyState(room) });
 
-      // If a game was in progress, abort it
       if (room.status === 'playing') {
-        room.status  = 'waiting';
-        room.game    = null;
-        io.to(room.code).emit('game:aborted', { reason: 'A player disconnected. Return to lobby.' });
+        room.status = 'waiting';
+        room.game   = null;
+        io.to(room.code).emit('game:aborted', {
+          reason: `${player.name} disconnected. Game ended.`,
+        });
       }
-    }
+    }, 30000);
+
+    reconnectTimers.set(socket.id, timer);
   });
 });
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function buildScoreBoard(room) {
-  return room.players.map(p => ({
-    name: p.name,
-    score: room.scores[p.id] ?? 0,
-  })).sort((a, b) => b.score - a.score); // highest score first (winner on top)
-}
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 

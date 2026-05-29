@@ -326,9 +326,36 @@ function renderLobby(state) {
 
 // ── Socket setup ───────────────────────────────────────────────────────────────
 function connect() {
-  S.socket = io();
+  S.socket = io({
+    reconnectionDelay:    1000,
+    reconnectionDelayMax: 5000,
+    reconnectionAttempts: 20,
+  });
 
-  S.socket.on('connect', () => console.log('socket connected'));
+  S.socket.on('connect', () => {
+    console.log('socket connected:', S.socket.id);
+    // Auto-rejoin if we were in a room when we dropped
+    if (S.roomCode && S.name && S._wasConnected) {
+      toast('Reconnecting…', 'info');
+      S.socket.emit('room:reconnect', { code: S.roomCode, name: S.name }, (res) => {
+        if (res?.error) {
+          toast('Could not rejoin: ' + res.error, 'error');
+          showScreen('screen-landing');
+        } else {
+          S.seatIndex = res.seatIndex;
+          S.isHost    = res.isHost;
+          toast('Reconnected!', 'success');
+          if (res.roomStatus === 'playing') showScreen('screen-game');
+          else showScreen('screen-lobby');
+        }
+      });
+    }
+    S._wasConnected = true;
+  });
+
+  S.socket.on('disconnect', () => {
+    toast('Connection lost — reconnecting…', 'error');
+  });
 
   S.socket.on('room:update', (state) => {
     renderLobby(state);
@@ -337,6 +364,14 @@ function connect() {
   S.socket.on('room:player_left', ({ roomState }) => {
     renderLobby(roomState);
     toast('A player left the room.', 'error');
+  });
+
+  S.socket.on('room:player_dropped', ({ name }) => {
+    toast(`${name} dropped — waiting for reconnect…`, 'error');
+  });
+
+  S.socket.on('room:player_reconnected', ({ name }) => {
+    toast(`${name} reconnected.`, 'success');
   });
 
   S.socket.on('game:started', () => {
@@ -358,10 +393,6 @@ function connect() {
     toast(reason, 'error');
     S.gameState = null;
     showScreen('screen-lobby');
-  });
-
-  S.socket.on('disconnect', () => {
-    toast('Disconnected from server.', 'error');
   });
 }
 
