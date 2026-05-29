@@ -195,8 +195,9 @@ function renderScoreBar() {
   S.gameState.players.forEach(p => {
     const item = document.createElement('div');
     item.className = 'score-item';
-    const score = S.totalScores[p.name] ?? 0;
-    item.innerHTML = `<span class="score-name">${p.name}</span><span class="score-val">${score >= 0 ? '+' : ''}${score}</span>`;
+    const score = S.totalScores[p.name];
+    const scoreStr = score === undefined ? '—' : (score >= 0 ? '+' : '') + score;
+    item.innerHTML = `<span class="score-name">${p.name}</span><span class="score-val">${scoreStr}</span>`;
     el.appendChild(item);
   });
 }
@@ -426,7 +427,9 @@ function init() {
       S.roomCode  = res.code;
       S.seatIndex = res.seatIndex;
       S.isHost    = false;
-      showScreen('screen-lobby');
+      // rejoined = page refresh during active game — go straight to game screen
+      if (res.rejoined) showScreen('screen-game');
+      else showScreen('screen-lobby');
     });
   });
 

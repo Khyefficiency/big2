@@ -127,10 +127,47 @@ io.on('connection', (socket) => {
 
     const room = rooms.get(code.toUpperCase().trim());
     if (!room) return callback({ error: 'Room not found.' });
-    if (room.status !== 'waiting') return callback({ error: 'Game already in progress.' });
-    if (room.players.length >= 4) return callback({ error: 'Room is full.' });
 
     const trimmed = name.trim().slice(0, 20);
+
+    // If game in progress or finished, check if this name belongs to a seated player
+    // (handles page-refresh mid-game — route them through reconnect automatically)
+    if (room.status !== 'waiting') {
+      const existing = room.players.find(p => p.name === trimmed);
+      if (existing) {
+        // Treat as a reconnect
+        const oldId = existing.id;
+        if (reconnectTimers.has(oldId)) {
+          clearTimeout(reconnectTimers.get(oldId));
+          reconnectTimers.delete(oldId);
+        }
+        existing.id = socket.id;
+        if (room.game) {
+          const gp = room.game.players.find(p => p.id === oldId);
+          if (gp) gp.id = socket.id;
+        }
+        if (room.scores[oldId] !== undefined) {
+          room.scores[socket.id] = room.scores[oldId];
+          delete room.scores[oldId];
+        }
+        socket.join(code);
+        console.log(`[room] ${trimmed} rejoined room ${code} via join (page refresh)`);
+        callback({ code, seatIndex: existing.seatIndex, rejoined: true });
+        if (room.status === 'playing' && room.game) broadcastGameState(room);
+        else io.to(code).emit('room:update', roomLobbyState(room));
+        io.to(code).emit('room:player_reconnected', { name: trimmed });
+        return;
+      }
+      return callback({ error: 'Game already in progress.' });
+    }
+
+    if (room.players.length >= 4) return callback({ error: 'Room is full.' });
+
+    // Reject duplicate names in the same room
+    if (room.players.some(p => p.name === trimmed)) {
+      return callback({ error: `Name "${trimmed}" is already taken in this room.` });
+    }
+
     const seatIndex = room.players.length;
     room.players.push({ id: socket.id, name: trimmed, seatIndex });
     room.scores[socket.id] = 0;

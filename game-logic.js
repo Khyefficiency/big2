@@ -360,27 +360,20 @@ function applyMove(state, playerId, cards) {
  */
 function advanceTurn(state) {
   const n = state.players.length;
-
-  // Check if everyone else has passed (i.e., last player to play leads next)
-  const activePlayers = state.players.filter(p => !p.passed);
-
-  // If only the table player is left un-passed, they win the round and lead next
-  if (activePlayers.length === 1 && !activePlayers[0].passed) {
-    startNewRound(state, state.tablePlayedBy);
-    return;
-  }
-
-  // Edge: all others passed — the person who played leads fresh
   const nonPassedCount = state.players.filter(p => !p.passed).length;
-  if (nonPassedCount === 1) {
+
+  // Only one player hasn't passed — they win the round and lead next
+  if (nonPassedCount <= 1) {
     startNewRound(state, state.tablePlayedBy);
     return;
   }
 
-  // Move to next player who hasn't passed
+  // Move to next player who hasn't passed (with infinite-loop guard)
   let next = (state.currentPlayerIndex + 1) % n;
+  let steps = 0;
   while (state.players[next].passed) {
     next = (next + 1) % n;
+    if (++steps > n) { startNewRound(state, state.tablePlayedBy); return; }
   }
   state.currentPlayerIndex = next;
 }
