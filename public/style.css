@@ -19,6 +19,7 @@
 
 html, body {
   height: 100%;
+  height: 100dvh;
   font-family: 'Segoe UI', system-ui, sans-serif;
   background: var(--felt-edge);
   color: var(--text);
@@ -26,7 +27,7 @@ html, body {
 }
 
 /* ── Screens ───────────────────────────────────────────────────── */
-.screen { display: none; width: 100vw; height: 100vh; }
+.screen { display: none; width: 100vw; height: 100vh; height: 100dvh; }
 .screen.active { display: flex; flex-direction: column; }
 .hidden { display: none !important; }
 
@@ -496,84 +497,166 @@ html, body {
 .toast.error  { border-color: #ff6b6b; color: #ff9999; }
 .toast.success { border-color: var(--active); color: #adffd4; }
 
-/* ── Mobile responsive ─────────────────────────────────────────── */
+/* ── Mobile — Portrait ─────────────────────────────────────────── */
 @media (max-width: 600px) {
 
-  /* Shrink side columns so centre gets breathing room */
+  /* Tiny cards for mobile */
+  :root {
+    --card-w:  38px;
+    --card-h:  54px;
+    --card-rad: 4px;
+  }
+
+  .card .corner .rank  { font-size: 10px; }
+  .card .corner .suit  { font-size: 8px; }
+  .card .center-suit   { font-size: 17px; }
+
+  /* Score bar — single compact line */
+  .score-bar {
+    flex-wrap: nowrap;
+    gap: 0;
+    font-size: .68rem;
+    padding: 3px 6px;
+    justify-content: space-around;
+  }
+  .score-bar .score-item { flex-direction: column; align-items: center; gap: 0; }
+  .score-bar .score-item .score-name { font-size: .6rem; }
+  .score-bar .score-item .score-val  { font-size: .7rem; }
+
+  /* Tighter grid — thin side cols */
   .game-board {
-    grid-template-columns: 100px 1fr 100px;
-    grid-template-rows: 120px 1fr;
-    padding: 4px;
-    gap: 4px;
+    grid-template-columns: 80px 1fr 80px;
+    grid-template-rows: 100px 1fr;
+    padding: 3px;
+    gap: 3px;
   }
 
   .opp-inner {
-    min-width: 86px;
-    padding: 8px 6px;
-    gap: 4px;
+    min-width: 0;
+    width: 100%;
+    padding: 5px 4px;
+    gap: 3px;
+    border-radius: 8px;
   }
 
   .opp-name {
-    font-size: .75rem;
-    max-width: 80px;
+    font-size: .68rem;
+    max-width: 72px;
   }
 
-  .opp-badge { font-size: .65rem; }
+  .opp-badge { font-size: .58rem; min-height: 14px; }
 
-  /* Smaller card backs for opponents */
   .card-back {
-    width: 16px;
-    height: 24px;
-    border-radius: 3px;
+    width: 13px;
+    height: 19px;
+    border-radius: 2px;
+  }
+  .opp-cards { max-width: 70px; gap: 1px; }
+
+  /* Tighter hand overlap — fits 13 cards on 390px */
+  .my-hand .card { margin-right: -19px; }
+
+  /* Compact my-section */
+  .my-section { padding: 6px 8px; }
+
+  .my-hand {
+    min-height: calc(var(--card-h) + 14px);
+    padding-top: 2px;
   }
 
-  .opp-cards { max-width: 80px; gap: 1px; }
-
-  /* Smaller cards in hand and on table */
-  :root {
-    --card-w:  44px;
-    --card-h:  62px;
-    --card-rad: 5px;
-  }
-
-  .card .corner .rank  { font-size: 12px; }
-  .card .corner .suit  { font-size: 9px; }
-  .card .center-suit   { font-size: 20px; }
-
-  /* Tighter overlap in hand — fits 13 cards on narrow screen */
-  .my-hand .card { margin-right: -22px; }
-
-  /* Score bar wraps on small screens */
-  .score-bar {
-    flex-wrap: wrap;
-    gap: 8px 16px;
-    font-size: .75rem;
-    padding: 4px 10px;
-  }
-
-  /* Action bar stacks on very small screens */
   .action-bar {
-    flex-wrap: wrap;
+    margin-top: 6px;
     gap: 8px;
-    justify-content: center;
+    flex-wrap: nowrap;
   }
 
-  .turn-msg { font-size: .78rem; padding: 4px 10px; }
-
-  .btn { padding: 8px 16px; font-size: 14px; }
-
-  /* Game over card fits mobile */
-  .gameover-card {
-    width: 95vw;
-    padding: 24px 16px;
+  .turn-msg {
+    font-size: .7rem;
+    padding: 4px 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 140px;
   }
 
-  .score-table { font-size: .8rem; }
-  .score-table th, .score-table td { padding: 7px 4px; }
+  .btn { padding: 8px 14px; font-size: 13px; }
+  .btn-play { min-width: 90px; }
 
-  /* Landing / lobby cards fit width */
+  /* Table area — less vertical padding */
+  .table-area { gap: 6px; min-height: 120px; }
+  .table-label { font-size: .75rem; }
+  .table-played-by { font-size: .7rem; }
+  .table-cards { min-height: 60px; gap: 4px; }
+
+  /* Landing / lobby */
   .landing-card, .lobby-card {
     width: 92vw;
-    padding: 28px 20px;
+    padding: 24px 18px;
   }
+
+  /* Game over */
+  .gameover-card {
+    width: 95vw;
+    padding: 20px 14px;
+  }
+  .score-table { font-size: .78rem; }
+  .score-table th, .score-table td { padding: 6px 4px; }
+  .winner-banner { font-size: 1.3rem; margin-bottom: 16px; }
+  .gameover-buttons .btn { min-width: 100px; }
+}
+
+/* ── Mobile — Landscape ────────────────────────────────────────── */
+@media (max-height: 500px) and (orientation: landscape) {
+
+  :root {
+    --card-w:  32px;
+    --card-h:  46px;
+    --card-rad: 3px;
+  }
+
+  .card .corner .rank  { font-size: 9px; }
+  .card .corner .suit  { font-size: 7px; }
+  .card .center-suit   { font-size: 14px; }
+
+  /* Score bar — horizontal, ultra compact */
+  .score-bar {
+    flex-wrap: nowrap;
+    font-size: .62rem;
+    padding: 2px 8px;
+    gap: 0;
+    justify-content: space-around;
+  }
+  .score-bar .score-item { flex-direction: row; gap: 4px; }
+
+  /* Landscape grid — shorter rows */
+  .game-board {
+    grid-template-columns: 90px 1fr 90px;
+    grid-template-rows: 80px 1fr;
+    padding: 2px;
+    gap: 2px;
+  }
+
+  .opp-inner { padding: 4px 3px; gap: 2px; min-width: 0; width: 100%; }
+  .opp-name  { font-size: .62rem; max-width: 80px; }
+  .opp-badge { font-size: .55rem; min-height: 12px; }
+
+  .card-back { width: 11px; height: 16px; }
+  .opp-cards { max-width: 76px; gap: 1px; }
+
+  .my-section { padding: 4px 6px; }
+  .my-hand {
+    min-height: calc(var(--card-h) + 10px);
+    padding-top: 0;
+  }
+  .my-hand .card { margin-right: -16px; }
+
+  .action-bar { margin-top: 4px; gap: 6px; }
+  .turn-msg   { font-size: .65rem; padding: 3px 7px; max-width: 120px; }
+  .btn        { padding: 6px 12px; font-size: 12px; }
+  .btn-play   { min-width: 80px; }
+
+  .table-area { min-height: 80px; gap: 4px; }
+  .table-label { font-size: .68rem; }
+  .table-cards { min-height: 50px; gap: 3px; }
+  .table-played-by { font-size: .62rem; }
 }
