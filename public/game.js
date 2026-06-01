@@ -10,6 +10,7 @@ const S = {
   selectedCards: [],   // [{rank, suit}]
   gameState:    null,  // latest from server
   totalScores:  {},    // { name: number } updated after each round
+  handOrder:    [],    // user-defined card order (array of cardKeys)
 };
 
 // ── Screens ────────────────────────────────────────────────────────────────────
@@ -51,7 +52,14 @@ function makeCardEl(card, opts = {}) {
     </div>`;
 
   if (selectable) {
-    el.addEventListener('click', () => toggleCard(card, el));
+    // Use pointerup so we can distinguish tap from drag
+    let _tapStartX = 0, _tapStartY = 0;
+    el.addEventListener('pointerdown', e => { _tapStartX = e.clientX; _tapStartY = e.clientY; });
+    el.addEventListener('pointerup',   e => {
+      const dx = Math.abs(e.clientX - _tapStartX);
+      const dy = Math.abs(e.clientY - _tapStartY);
+      if (dx < 8 && dy < 8) toggleCard(card, el); // only select if it was a tap, not a drag
+    });
   }
   return el;
 }
@@ -174,15 +182,105 @@ function renderMyHand(myHand) {
 
   const handKeys = new Set(myHand.map(cardKey));
   S.selectedCards = S.selectedCards.filter(c => handKeys.has(cardKey(c)));
+
+  // Merge handOrder: keep existing order for cards still in hand, append new ones at end
+  S.handOrder = S.handOrder.filter(k => handKeys.has(k));
+  myHand.forEach(c => {
+    if (!S.handOrder.includes(cardKey(c))) S.handOrder.push(cardKey(c));
+  });
+
+  // Build a lookup for fast access
+  const cardMap = Object.fromEntries(myHand.map(c => [cardKey(c), c]));
   const selectedKeys = new Set(S.selectedCards.map(cardKey));
 
-  myHand.forEach(card => {
+  S.handOrder.forEach((key, idx) => {
+    const card = cardMap[key];
+    if (!card) return;
     const el = makeCardEl(card, {
       selectable: true,
-      selected:   selectedKeys.has(cardKey(card)),
+      selected:   selectedKeys.has(key),
     });
+    el.dataset.cardKey = key;
+    el.dataset.idx     = idx;
+    addDragToReorder(el, handEl);
     handEl.appendChild(el);
   });
+}
+
+// ── Drag-to-reorder (mouse + touch) ────────────────────────────────────────────
+function addDragToReorder(el, container) {
+  let dragKey   = null;
+  let startX    = 0;
+  let origIdx   = 0;
+  let isDragging = false;
+  let clone      = null;
+  let startScrollLeft = 0;
+
+  function onStart(clientX) {
+    dragKey  = el.dataset.cardKey;
+    origIdx  = S.handOrder.indexOf(dragKey);
+    startX   = clientX;
+    isDragging = false;
+    startScrollLeft = container.scrollLeft || 0;
+  }
+
+  function onMove(clientX) {
+    const dx = Math.abs(clientX - startX);
+    if (!isDragging && dx < 6) return; // ignore tiny taps
+
+    if (!isDragging) {
+      isDragging = true;
+      el.classList.add('dragging');
+    }
+
+    // Figure out which position the drag is over
+    const cards    = Array.from(container.querySelectorAll('.card[data-card-key]'));
+    const rect     = container.getBoundingClientRect();
+    const relX     = clientX - rect.left + (container.scrollLeft || 0);
+    let   newIdx   = origIdx;
+
+    for (let i = 0; i < cards.length; i++) {
+      const r  = cards[i].getBoundingClientRect();
+      const cx = r.left + r.width / 2 - rect.left + (container.scrollLeft || 0);
+      if (relX > cx) newIdx = i;
+    }
+
+    if (newIdx !== S.handOrder.indexOf(dragKey)) {
+      const cur = S.handOrder.indexOf(dragKey);
+      S.handOrder.splice(cur, 1);
+      S.handOrder.splice(newIdx, 0, dragKey);
+      renderMyHand(S.gameState?.myHand || []);
+    }
+  }
+
+  function onEnd() {
+    if (isDragging) {
+      el.classList.remove('dragging');
+      isDragging = false;
+    }
+  }
+
+  // Mouse
+  el.addEventListener('mousedown', e => {
+    if (!isMyTurn() && S.gameState) return; // allow reorder any time actually
+    onStart(e.clientX);
+    const mm = e2 => onMove(e2.clientX);
+    const mu = () => { onEnd(); window.removeEventListener('mousemove', mm); window.removeEventListener('mouseup', mu); };
+    window.addEventListener('mousemove', mm);
+    window.addEventListener('mouseup', mu);
+  });
+
+  // Touch
+  el.addEventListener('touchstart', e => {
+    onStart(e.touches[0].clientX);
+  }, { passive: true });
+
+  el.addEventListener('touchmove', e => {
+    onMove(e.touches[0].clientX);
+    if (isDragging) e.preventDefault(); // prevent page scroll while dragging card
+  }, { passive: false });
+
+  el.addEventListener('touchend', () => onEnd());
 }
 
 function renderScoreBar() {
@@ -392,6 +490,7 @@ function connect() {
 
   S.socket.on('game:started', () => {
     S.selectedCards = [];
+    S.handOrder     = [];
     showScreen('screen-game');
   });
 
