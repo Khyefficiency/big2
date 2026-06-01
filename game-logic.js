@@ -510,6 +510,65 @@ function calculateRoundScores(winnerId, players) {
   return deltas;
 }
 
+// ─── Bot Logic ────────────────────────────────────────────────────────────────
+
+/**
+ * Generate all possible subsets of `hand` of a given size.
+ */
+function combinations(hand, size) {
+  if (size === 0) return [[]];
+  if (hand.length < size) return [];
+  const [first, ...rest] = hand;
+  const withFirst    = combinations(rest, size - 1).map(c => [first, ...c]);
+  const withoutFirst = combinations(rest, size);
+  return [...withFirst, ...withoutFirst];
+}
+
+/**
+ * Pick a move for a bot player.
+ * Strategy: play the lowest valid hand possible; pass only when forced to.
+ * Returns an array of cards to play, or null to pass.
+ */
+function pickBotMove(game, botId) {
+  const player = game.players.find(p => p.id === botId);
+  if (!player) return null;
+
+  const hand       = player.hand;
+  const tableHand  = game.tableHand;
+  const isLeading  = !tableHand;
+  const isFirst    = game.isFirstPlay;
+
+  // Sizes to try: 1, 2, 3, 5
+  const sizes = [1, 2, 3, 5];
+
+  let candidates = [];
+
+  for (const size of sizes) {
+    for (const combo of combinations(hand, size)) {
+      const v = validatePlay(combo, tableHand, isFirst);
+      if (v.valid) candidates.push(combo);
+    }
+  }
+
+  if (candidates.length === 0) return null; // must pass
+
+  // Shuffle candidates so bot doesn't always play the same pattern,
+  // then pick the one with the lowest top card value
+  candidates.sort((a, b) => {
+    const topA = Math.max(...a.map(cardValue));
+    const topB = Math.max(...b.map(cardValue));
+    return topA - topB;
+  });
+
+  // If leading, bias toward playing singles or pairs over burning 5-card hands
+  if (isLeading) {
+    const small = candidates.filter(c => c.length <= 3);
+    if (small.length > 0) return small[0];
+  }
+
+  return candidates[0];
+}
+
 // ─── Public API ────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -532,6 +591,9 @@ module.exports = {
   // Game lifecycle
   createGame,
   applyMove,
+
+  // Bot
+  pickBotMove,
 
   // Scoring
   cardMultiplier,

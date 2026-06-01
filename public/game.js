@@ -107,7 +107,7 @@ function renderOpponent(gPlayer, position, activeIdx) {
     return;
   }
 
-  namEl.textContent = gPlayer.name;
+  namEl.textContent = gPlayer.isBot ? `🤖 ${gPlayer.name}` : gPlayer.name;
   inner.classList.toggle('active-turn', gPlayer.seatIndex === activeIdx);
 
   // Card backs
@@ -127,7 +127,7 @@ function renderOpponent(gPlayer, position, activeIdx) {
   }
 
   if (gPlayer.seatIndex === activeIdx) {
-    badgeEl.textContent = '▶ Their turn';
+    badgeEl.textContent = gPlayer.isBot ? '🤖 Thinking…' : '▶ Their turn';
     badgeEl.className   = 'opp-badge active';
   } else if (gPlayer.passed) {
     badgeEl.textContent = 'PASSED';
@@ -151,7 +151,6 @@ function renderTable(g) {
     return;
   }
 
-  // Hand type label
   const typeNames = {
     1: 'Single', 2: 'Pair', 3: 'Triple',
     4: 'Straight', 5: 'Flush', 6: 'Full House',
@@ -159,14 +158,13 @@ function renderTable(g) {
   };
   labelEl.textContent = typeNames[g.tableHand.type] || '';
 
-  // Cards
   g.tableHand.cards.forEach(card => {
     cardsEl.appendChild(makeCardEl(card, { small: true }));
   });
 
   const player = g.players.find(p => p.seatIndex === g.tablePlayedBy);
   if (player) {
-    playedByEl.textContent = `played by ${player.name}`;
+    playedByEl.textContent = `played by ${player.isBot ? '🤖 ' : ''}${player.name}`;
   }
 }
 
@@ -174,7 +172,6 @@ function renderMyHand(myHand) {
   const handEl = document.getElementById('my-hand');
   handEl.innerHTML = '';
 
-  // Keep prior selections that still exist in hand
   const handKeys = new Set(myHand.map(cardKey));
   S.selectedCards = S.selectedCards.filter(c => handKeys.has(cardKey(c)));
   const selectedKeys = new Set(S.selectedCards.map(cardKey));
@@ -197,7 +194,7 @@ function renderScoreBar() {
     item.className = 'score-item';
     const score = S.totalScores[p.name];
     const scoreStr = score === undefined ? '—' : (score >= 0 ? '+' : '') + score;
-    item.innerHTML = `<span class="score-name">${p.name}</span><span class="score-val">${scoreStr}</span>`;
+    item.innerHTML = `<span class="score-name">${p.isBot ? '🤖 ' : ''}${p.name}</span><span class="score-val">${scoreStr}</span>`;
     el.appendChild(item);
   });
 }
@@ -225,7 +222,8 @@ function updateActionBar() {
     msgEl.className   = 'turn-msg your-turn';
   } else {
     const curr = S.gameState.players[S.gameState.currentPlayerIndex];
-    msgEl.textContent = curr ? `Waiting for ${curr.name}…` : 'Waiting…';
+    const currName = curr ? (curr.isBot ? `🤖 ${curr.name}` : curr.name) : '';
+    msgEl.textContent = currName ? `Waiting for ${currName}…` : 'Waiting…';
     msgEl.className   = 'turn-msg others-turn';
   }
 }
@@ -265,7 +263,6 @@ function passRound() {
 
 // ── Game Over Screen ───────────────────────────────────────────────────────────
 function showGameOver(data) {
-  // Update running totals from breakdown
   if (data.breakdown) {
     data.breakdown.forEach(row => {
       S.totalScores[row.name] = row.totalScore;
@@ -290,7 +287,6 @@ function showGameOver(data) {
     tbody.appendChild(tr);
   });
 
-  // Show rematch only to host
   const btnRematch = document.getElementById('btn-rematch');
   btnRematch.classList.toggle('hidden', !S.isHost);
 
@@ -307,22 +303,42 @@ function renderLobby(state) {
     const row = document.createElement('div');
     row.className = 'lobby-player-row';
     const player = state.players.find(p => p.seatIndex === i);
-    row.innerHTML = player
-      ? `<div class="seat-num">${i + 1}</div>
-         <div class="seat-name">${player.name}</div>
-         ${i === 0 ? '<div class="host-tag">HOST</div>' : ''}`
-      : `<div class="seat-num">${i + 1}</div>
-         <div class="seat-name" style="color:var(--muted)">Waiting…</div>`;
+    if (player) {
+      const isBot = player.isBot;
+      row.innerHTML = `
+        <div class="seat-num">${i + 1}</div>
+        <div class="seat-name">${isBot ? '🤖 ' : ''}${player.name}</div>
+        ${i === 0 ? '<div class="host-tag">HOST</div>' : (isBot ? '<div class="bot-tag">BOT</div>' : '')}`;
+    } else {
+      row.innerHTML = `
+        <div class="seat-num">${i + 1}</div>
+        <div class="seat-name" style="color:var(--muted)">Waiting…</div>`;
+    }
     container.appendChild(row);
   }
 
   const count = state.players.length;
-  document.getElementById('lobby-status').textContent = `Waiting for players… (${count}/4)`;
+  document.getElementById('lobby-status').textContent =
+    count === 4 ? 'All players ready!' : `Waiting for players… (${count}/4)`;
 
-  const btnStart  = document.getElementById('btn-start');
-  const hostHint  = document.getElementById('lobby-host-hint');
+  const btnStart    = document.getElementById('btn-start');
+  const hostHint    = document.getElementById('lobby-host-hint');
+  const botControls = document.getElementById('lobby-bot-controls');
+  const btnAddBot   = document.getElementById('btn-add-bot');
+  const btnRemBot   = document.getElementById('btn-remove-bot');
+
   btnStart.disabled = count < 4 || !S.isHost;
   hostHint.classList.toggle('hidden', S.isHost || count >= 4);
+
+  // Bot controls — only visible to host when there's room
+  if (S.isHost) {
+    botControls.classList.remove('hidden');
+    btnAddBot.classList.toggle('hidden', count >= 4);
+    const hasBots = state.players.some(p => p.isBot);
+    btnRemBot.classList.toggle('hidden', !hasBots);
+  } else {
+    botControls.classList.add('hidden');
+  }
 }
 
 // ── Socket setup ───────────────────────────────────────────────────────────────
@@ -335,7 +351,6 @@ function connect() {
 
   S.socket.on('connect', () => {
     console.log('socket connected:', S.socket.id);
-    // Auto-rejoin if we were in a room when we dropped
     if (S.roomCode && S.name && S._wasConnected) {
       toast('Reconnecting…', 'info');
       S.socket.emit('room:reconnect', { code: S.roomCode, name: S.name }, (res) => {
@@ -427,13 +442,12 @@ function init() {
       S.roomCode  = res.code;
       S.seatIndex = res.seatIndex;
       S.isHost    = false;
-      // rejoined = page refresh during active game — go straight to game screen
       if (res.rejoined) showScreen('screen-game');
       else showScreen('screen-lobby');
     });
   });
 
-  // Allow Enter key on code input
+  // Enter key shortcuts
   document.getElementById('input-code').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') document.getElementById('btn-join').click();
   });
@@ -441,9 +455,23 @@ function init() {
     if (e.key === 'Enter') document.getElementById('btn-create').click();
   });
 
-  // Start game (host)
+  // Start game
   document.getElementById('btn-start').addEventListener('click', () => {
     S.socket.emit('game:start', {}, (res) => {
+      if (res?.error) toast(res.error, 'error');
+    });
+  });
+
+  // Add bot
+  document.getElementById('btn-add-bot').addEventListener('click', () => {
+    S.socket.emit('room:add_bot', {}, (res) => {
+      if (res?.error) toast(res.error, 'error');
+    });
+  });
+
+  // Remove bot
+  document.getElementById('btn-remove-bot').addEventListener('click', () => {
+    S.socket.emit('room:remove_bot', {}, (res) => {
       if (res?.error) toast(res.error, 'error');
     });
   });
@@ -469,7 +497,6 @@ function init() {
     S.roomCode    = '';
     S.seatIndex   = -1;
     showScreen('screen-landing');
-    // Reconnect so the old socket drops and a clean one connects on next action
     S.socket.disconnect();
     connect();
   });

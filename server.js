@@ -4,7 +4,7 @@ const express   = require('express');
 const http      = require('http');
 const { Server } = require('socket.io');
 const path      = require('path');
-const { createGame, applyMove, calculateRoundScores } = require('./game-logic');
+const { createGame, applyMove, calculateRoundScores, pickBotMove } = require('./game-logic');
 
 // ─── Setup ────────────────────────────────────────────────────────────────────
 
@@ -25,8 +25,15 @@ app.use(express.static(path.join(__dirname, 'public')));
 const rooms = new Map();
 
 // Grace-period timers: old socketId → setTimeout handle
-// When a player drops we wait 30s before actually removing them.
 const reconnectTimers = new Map();
+
+// Bot turn timers: roomCode → setTimeout handle
+const botTimers = new Map();
+
+let botCounter = 0;
+function generateBotId() {
+  return `__bot_${++botCounter}_${Date.now()}`;
+}
 
 function generateRoomCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -56,11 +63,13 @@ function broadcastGameState(room) {
       cardCount: gp.cardCount,
       passed: gp.passed,
       seatIndex: i,
+      isBot: players[i]?.isBot ?? false,
     })),
   };
 
   for (let i = 0; i < players.length; i++) {
     const seated = players[i];
+    if (seated.isBot) continue; // bots have no socket
     const socket = io.sockets.sockets.get(seated.id);
     if (!socket) continue;
 
@@ -83,7 +92,7 @@ function roomLobbyState(room) {
   return {
     code: room.code,
     status: room.status,
-    players: room.players.map(p => ({ name: p.name, seatIndex: p.seatIndex })),
+    players: room.players.map(p => ({ name: p.name, seatIndex: p.seatIndex, isBot: p.isBot ?? false })),
     scores: room.scores,
   };
 }
@@ -92,7 +101,80 @@ function buildScoreBoard(room) {
   return room.players.map(p => ({
     name: p.name,
     score: room.scores[p.id] ?? 0,
+    isBot: p.isBot ?? false,
   })).sort((a, b) => b.score - a.score);
+}
+
+// ─── Bot Auto-play ────────────────────────────────────────────────────────────
+
+function scheduleNextBotTurn(room) {
+  if (!room.game || room.game.status === 'finished') return;
+
+  const currentIdx    = room.game.currentPlayerIndex;
+  const currentPlayer = room.players[currentIdx];
+  if (!currentPlayer?.isBot) return; // not a bot's turn
+
+  // Cancel any existing timer for this room
+  if (botTimers.has(room.code)) {
+    clearTimeout(botTimers.get(room.code));
+  }
+
+  const timer = setTimeout(() => {
+    botTimers.delete(room.code);
+    if (!room.game || room.game.status === 'finished') return;
+
+    const botId = currentPlayer.id;
+    const cards = pickBotMove(room.game, botId);
+    const result = applyMove(room.game, botId, cards);
+
+    if (!result.success) {
+      // Shouldn't happen — try passing as fallback
+      applyMove(room.game, botId, null);
+    }
+
+    broadcastGameState(room);
+
+    if (result.finished) {
+      handleGameOver(room, botId);
+      return;
+    }
+
+    // Schedule the next bot turn if needed
+    scheduleNextBotTurn(room);
+  }, 1200); // 1.2s delay so it feels natural
+
+  botTimers.set(room.code, timer);
+}
+
+function handleGameOver(room, winnerId) {
+  const allPlayers = room.game.players.map((gp, i) => ({
+    id: gp.id,
+    cardCount: gp.cardCount,
+    name: room.players[i]?.name ?? gp.id,
+  }));
+  const deltas = calculateRoundScores(winnerId, allPlayers);
+
+  for (const [id, delta] of Object.entries(deltas)) {
+    room.scores[id] = (room.scores[id] || 0) + delta;
+  }
+
+  const breakdown = allPlayers.map(p => ({
+    name: p.name,
+    id: p.id,
+    cardCount: p.cardCount,
+    roundDelta: deltas[p.id],
+    totalScore: room.scores[p.id],
+    isWinner: p.id === winnerId,
+  }));
+
+  const winnerName = room.players.find(p => p.id === winnerId)?.name;
+  room.status = 'finished';
+
+  io.to(room.code).emit('game:over', {
+    winner: winnerName,
+    breakdown,
+    scores: buildScoreBoard(room),
+  });
 }
 
 // ─── Socket Events ────────────────────────────────────────────────────────────
@@ -130,12 +212,9 @@ io.on('connection', (socket) => {
 
     const trimmed = name.trim().slice(0, 20);
 
-    // If game in progress or finished, check if this name belongs to a seated player
-    // (handles page-refresh mid-game — route them through reconnect automatically)
     if (room.status !== 'waiting') {
-      const existing = room.players.find(p => p.name === trimmed);
+      const existing = room.players.find(p => p.name === trimmed && !p.isBot);
       if (existing) {
-        // Treat as a reconnect
         const oldId = existing.id;
         if (reconnectTimers.has(oldId)) {
           clearTimeout(reconnectTimers.get(oldId));
@@ -163,7 +242,6 @@ io.on('connection', (socket) => {
 
     if (room.players.length >= 4) return callback({ error: 'Room is full.' });
 
-    // Reject duplicate names in the same room
     if (room.players.some(p => p.name === trimmed)) {
       return callback({ error: `Name "${trimmed}" is already taken in this room.` });
     }
@@ -178,24 +256,65 @@ io.on('connection', (socket) => {
     io.to(code).emit('room:update', roomLobbyState(room));
   });
 
+  // ── Add Bot ──────────────────────────────────────────────────────────────
+  socket.on('room:add_bot', (_, callback) => {
+    const room = getRoomForSocket(socket.id);
+    if (!room) return callback?.({ error: 'Not in a room.' });
+    if (room.players[0].id !== socket.id) return callback?.({ error: 'Only the host can add bots.' });
+    if (room.status !== 'waiting') return callback?.({ error: 'Cannot add bots after game starts.' });
+    if (room.players.length >= 4) return callback?.({ error: 'Room is full.' });
+
+    const botNum   = room.players.filter(p => p.isBot).length + 1;
+    const botId    = generateBotId();
+    const botName  = `Bot ${botNum}`;
+    const seatIndex = room.players.length;
+
+    room.players.push({ id: botId, name: botName, seatIndex, isBot: true });
+    room.scores[botId] = 0;
+
+    console.log(`[room] Added ${botName} to room ${room.code}`);
+    callback?.({ success: true });
+    io.to(room.code).emit('room:update', roomLobbyState(room));
+  });
+
+  // ── Remove Bot ───────────────────────────────────────────────────────────
+  socket.on('room:remove_bot', (_, callback) => {
+    const room = getRoomForSocket(socket.id);
+    if (!room) return callback?.({ error: 'Not in a room.' });
+    if (room.players[0].id !== socket.id) return callback?.({ error: 'Only the host can remove bots.' });
+    if (room.status !== 'waiting') return callback?.({ error: 'Cannot remove bots after game starts.' });
+
+    // Remove the last bot added
+    const lastBotIdx = room.players.map((p, i) => p.isBot ? i : -1).filter(i => i >= 0).pop();
+    if (lastBotIdx === undefined) return callback?.({ error: 'No bots to remove.' });
+
+    const bot = room.players[lastBotIdx];
+    delete room.scores[bot.id];
+    room.players.splice(lastBotIdx, 1);
+    // Re-index seat numbers
+    room.players.forEach((p, i) => { p.seatIndex = i; });
+
+    console.log(`[room] Removed ${bot.name} from room ${room.code}`);
+    callback?.({ success: true });
+    io.to(room.code).emit('room:update', roomLobbyState(room));
+  });
+
   // ── Reconnect (after a drop) ─────────────────────────────────────────────
   socket.on('room:reconnect', ({ code, name }, callback) => {
     const room = rooms.get(code?.toUpperCase().trim());
     if (!room) return callback?.({ error: 'Room not found.' });
 
-    const playerIndex = room.players.findIndex(p => p.name === name);
+    const playerIndex = room.players.findIndex(p => p.name === name && !p.isBot);
     if (playerIndex === -1) return callback?.({ error: 'Player not found in room.' });
 
     const player = room.players[playerIndex];
     const oldId  = player.id;
 
-    // Cancel the eviction timer
     if (reconnectTimers.has(oldId)) {
       clearTimeout(reconnectTimers.get(oldId));
       reconnectTimers.delete(oldId);
     }
 
-    // Re-map socket ID everywhere
     player.id = socket.id;
     if (room.game) {
       const gp = room.game.players.find(p => p.id === oldId);
@@ -218,6 +337,7 @@ io.on('connection', (socket) => {
 
     if (room.status === 'playing' && room.game) {
       broadcastGameState(room);
+      scheduleNextBotTurn(room); // resume bot play if it's a bot's turn
     } else {
       io.to(code).emit('room:update', roomLobbyState(room));
     }
@@ -239,6 +359,7 @@ io.on('connection', (socket) => {
     console.log(`[game] Room ${room.code} started`);
     io.to(room.code).emit('game:started');
     broadcastGameState(room);
+    scheduleNextBotTurn(room);
     callback?.({ success: true });
   });
 
@@ -253,34 +374,12 @@ io.on('connection', (socket) => {
     broadcastGameState(room);
 
     if (result.finished) {
-      const allPlayers = room.game.players.map((gp, i) => ({
-        id: gp.id,
-        cardCount: gp.cardCount,
-        name: room.players[i]?.name ?? gp.id,
-      }));
-      const deltas = calculateRoundScores(socket.id, allPlayers);
-
-      for (const [id, delta] of Object.entries(deltas)) {
-        room.scores[id] = (room.scores[id] || 0) + delta;
-      }
-
-      const breakdown = allPlayers.map(p => ({
-        name: p.name,
-        id: p.id,
-        cardCount: p.cardCount,
-        roundDelta: deltas[p.id],
-        totalScore: room.scores[p.id],
-        isWinner: p.id === socket.id,
-      }));
-
-      room.status = 'finished';
-      io.to(room.code).emit('game:over', {
-        winner: room.players.find(p => p.id === socket.id)?.name,
-        breakdown,
-        scores: buildScoreBoard(room),
-      });
+      handleGameOver(room, socket.id);
+      callback?.({ success: true });
+      return;
     }
 
+    scheduleNextBotTurn(room);
     callback?.({ success: true });
   });
 
@@ -293,6 +392,7 @@ io.on('connection', (socket) => {
     if (!result.success) return callback?.({ error: result.reason });
 
     broadcastGameState(room);
+    scheduleNextBotTurn(room);
     callback?.({ success: true });
   });
 
@@ -309,6 +409,7 @@ io.on('connection', (socket) => {
 
     io.to(room.code).emit('game:started');
     broadcastGameState(room);
+    scheduleNextBotTurn(room);
     callback?.({ success: true });
   });
 
@@ -324,11 +425,9 @@ io.on('connection', (socket) => {
     console.log(`[room] ${player.name} dropped — waiting 30s for reconnect`);
     io.to(room.code).emit('room:player_dropped', { name: player.name });
 
-    // Give 30 seconds to reconnect before evicting
     const timer = setTimeout(() => {
       reconnectTimers.delete(socket.id);
 
-      // Still gone — evict
       room.players = room.players.filter(p => p.id !== socket.id);
 
       if (room.players.length === 0) {
@@ -340,6 +439,10 @@ io.on('connection', (socket) => {
       io.to(room.code).emit('room:player_left', { roomState: roomLobbyState(room) });
 
       if (room.status === 'playing') {
+        if (botTimers.has(room.code)) {
+          clearTimeout(botTimers.get(room.code));
+          botTimers.delete(room.code);
+        }
         room.status = 'waiting';
         room.game   = null;
         io.to(room.code).emit('game:aborted', {
