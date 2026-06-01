@@ -84,6 +84,35 @@ function dealCards(deck) {
   return hands;
 }
 
+/**
+ * Check if a deal is fair. Rejects deals where any player holds
+ * all four 2s (instant-win scenario) or all four Aces + all four 2s.
+ */
+function isFairDeal(hands) {
+  for (const hand of hands) {
+    const twos  = hand.filter(c => c.rank === '2').length;
+    const aces  = hand.filter(c => c.rank === 'A').length;
+    // Reject: any player has all four 2s
+    if (twos === 4) return false;
+    // Reject: any player has all four Aces AND three or four 2s (near-unbeatable)
+    if (aces === 4 && twos >= 3) return false;
+  }
+  return true;
+}
+
+/** Deal cards, redealing if the distribution is unfair. */
+function fairDeal() {
+  let attempts = 0;
+  while (attempts < 100) {
+    const deck  = buildDeck();
+    const hands = dealCards(deck);
+    if (isFairDeal(hands)) return hands;
+    attempts++;
+  }
+  // Fallback: return whatever we have after 100 attempts (should never happen)
+  return dealCards(buildDeck());
+}
+
 /** Find which hand index holds 3♦ (starting player). */
 function findStartingPlayer(hands) {
   for (let i = 0; i < hands.length; i++) {
@@ -272,8 +301,7 @@ function validatePlay(playedCards, tableHand, mustInclude3D = false) {
 function createGame(playerIds) {
   if (playerIds.length !== 4) throw new Error('Big 2 requires exactly 4 players.');
 
-  const deck  = buildDeck();
-  const hands = dealCards(deck);
+  const hands = fairDeal();
   const startingPlayer = findStartingPlayer(hands);
 
   return {
@@ -492,6 +520,8 @@ module.exports = {
   sortCards,
   buildDeck,
   dealCards,
+  isFairDeal,
+  fairDeal,
   findStartingPlayer,
 
   // Hand logic
