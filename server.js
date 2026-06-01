@@ -434,9 +434,10 @@ io.on('connection', (socket) => {
     const player = room.players.find(p => p.id === socket.id);
     if (!player) return;
 
-    console.log(`[room] ${player.name} dropped — waiting 30s for reconnect`);
+    console.log(`[room] ${player.name} dropped — waiting 5 min for reconnect`);
     io.to(room.code).emit('room:player_dropped', { name: player.name });
 
+    // 5 minutes — mobile browsers kill WebSocket on app switch, user needs time to return
     const timer = setTimeout(() => {
       reconnectTimers.delete(socket.id);
 
@@ -461,7 +462,7 @@ io.on('connection', (socket) => {
           reason: `${player.name} disconnected. Game ended.`,
         });
       }
-    }, 30000);
+    }, 5 * 60 * 1000); // 5 minutes
 
     reconnectTimers.set(socket.id, timer);
   });

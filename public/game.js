@@ -440,31 +440,62 @@ function renderLobby(state) {
 }
 
 // ── Socket setup ───────────────────────────────────────────────────────────────
+function saveSession() {
+  if (S.roomCode && S.name) {
+    sessionStorage.setItem('big2_room', S.roomCode);
+    sessionStorage.setItem('big2_name', S.name);
+    sessionStorage.setItem('big2_seat', S.seatIndex);
+    sessionStorage.setItem('big2_host', S.isHost ? '1' : '0');
+  }
+}
+
+function loadSession() {
+  S.roomCode  = sessionStorage.getItem('big2_room') || '';
+  S.name      = sessionStorage.getItem('big2_name') || '';
+  S.seatIndex = parseInt(sessionStorage.getItem('big2_seat') ?? '-1', 10);
+  S.isHost    = sessionStorage.getItem('big2_host') === '1';
+}
+
+function clearSession() {
+  sessionStorage.removeItem('big2_room');
+  sessionStorage.removeItem('big2_name');
+  sessionStorage.removeItem('big2_seat');
+  sessionStorage.removeItem('big2_host');
+}
+
 function connect() {
   S.socket = io({
-    reconnectionDelay:    1000,
-    reconnectionDelayMax: 5000,
-    reconnectionAttempts: 20,
+    reconnectionDelay:    500,
+    reconnectionDelayMax: 3000,
+    reconnectionAttempts: Infinity,  // keep trying indefinitely
+    timeout:              10000,
   });
 
   S.socket.on('connect', () => {
     console.log('socket connected:', S.socket.id);
-    if (S.roomCode && S.name && S._wasConnected) {
+
+    // Try to restore from memory first, then fall back to sessionStorage
+    if (!S.roomCode || !S.name) loadSession();
+
+    if (S.roomCode && S.name) {
       toast('Reconnecting…', 'info');
       S.socket.emit('room:reconnect', { code: S.roomCode, name: S.name }, (res) => {
         if (res?.error) {
-          toast('Could not rejoin: ' + res.error, 'error');
+          // Room may have expired — go back to landing but keep name pre-filled
+          clearSession();
+          document.getElementById('input-name').value = S.name;
           showScreen('screen-landing');
+          toast('Session expired. Please rejoin.', 'error');
         } else {
           S.seatIndex = res.seatIndex;
           S.isHost    = res.isHost;
+          saveSession();
           toast('Reconnected!', 'success');
           if (res.roomStatus === 'playing') showScreen('screen-game');
           else showScreen('screen-lobby');
         }
       });
     }
-    S._wasConnected = true;
   });
 
   S.socket.on('disconnect', () => {
@@ -530,6 +561,7 @@ function init() {
       S.roomCode  = res.code;
       S.seatIndex = res.seatIndex;
       S.isHost    = true;
+      saveSession();
       showScreen('screen-lobby');
     });
   });
@@ -546,6 +578,7 @@ function init() {
       S.roomCode  = res.code;
       S.seatIndex = res.seatIndex;
       S.isHost    = false;
+      saveSession();
       if (res.rejoined) showScreen('screen-game');
       else showScreen('screen-lobby');
     });
@@ -599,7 +632,10 @@ function init() {
     S.totalScores = {};
     S.isHost      = false;
     S.roomCode    = '';
+    S.name        = '';
     S.seatIndex   = -1;
+    S.handOrder   = [];
+    clearSession();
     showScreen('screen-landing');
     S.socket.disconnect();
     connect();
