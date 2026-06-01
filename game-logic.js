@@ -392,6 +392,7 @@ function advanceTurn(state) {
 
   // Only one player hasn't passed — they win the round and lead next
   if (nonPassedCount <= 1) {
+    state._roundWinner = state.tablePlayedBy; // signal for server to broadcast
     startNewRound(state, state.tablePlayedBy);
     return;
   }

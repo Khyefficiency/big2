@@ -26,7 +26,7 @@ function toast(msg, type = 'info') {
   el.textContent = msg;
   el.className = `toast ${type}`;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.className = 'toast hidden'; }, 2600);
+  toastTimer = setTimeout(() => { el.className = 'toast hidden'; }, 3200);
 }
 
 // ── Card helpers ───────────────────────────────────────────────────────────────
@@ -498,6 +498,11 @@ function connect() {
     S.gameState = state;
     S.seatIndex = state.mySeatIndex;
     renderGame();
+  });
+
+  S.socket.on('round:won', ({ winnerName, winnerSeat }) => {
+    const isMe = winnerSeat === S.seatIndex;
+    toast(isMe ? '🏅 You won the round — you lead next!' : `${winnerName} won the round`, isMe ? 'success' : 'info');
   });
 
   S.socket.on('game:over', (data) => {

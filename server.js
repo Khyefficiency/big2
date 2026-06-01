@@ -119,6 +119,9 @@ function scheduleNextBotTurn(room) {
     clearTimeout(botTimers.get(room.code));
   }
 
+  // First play of the game gets a longer pause so humans can read the board
+  const delay = room.game.isFirstPlay ? 3000 : 1500;
+
   const timer = setTimeout(() => {
     botTimers.delete(room.code);
     if (!room.game || room.game.status === 'finished') return;
@@ -132,18 +135,29 @@ function scheduleNextBotTurn(room) {
       applyMove(room.game, botId, null);
     }
 
-    broadcastGameState(room);
-
     if (result.finished) {
+      broadcastGameState(room);
       handleGameOver(room, botId);
       return;
     }
 
-    // Schedule the next bot turn if needed
-    scheduleNextBotTurn(room);
-  }, 1200); // 1.2s delay so it feels natural
+    afterMove(room);
+  }, delay);
 
   botTimers.set(room.code, timer);
+}
+
+/** Emit round:won if the last move ended a round, then schedule bots. */
+function afterMove(room) {
+  if (!room.game) return;
+  const rw = room.game._roundWinner;
+  if (rw !== undefined) {
+    room.game._roundWinner = undefined;
+    const winnerName = room.players[rw]?.name ?? 'Unknown';
+    io.to(room.code).emit('round:won', { winnerName, winnerSeat: rw });
+  }
+  broadcastGameState(room);
+  scheduleNextBotTurn(room);
 }
 
 function handleGameOver(room, winnerId) {
@@ -371,15 +385,14 @@ io.on('connection', (socket) => {
     const result = applyMove(room.game, socket.id, cards);
     if (!result.success) return callback?.({ error: result.reason });
 
-    broadcastGameState(room);
-
     if (result.finished) {
+      broadcastGameState(room);
       handleGameOver(room, socket.id);
       callback?.({ success: true });
       return;
     }
 
-    scheduleNextBotTurn(room);
+    afterMove(room);
     callback?.({ success: true });
   });
 
@@ -391,8 +404,7 @@ io.on('connection', (socket) => {
     const result = applyMove(room.game, socket.id, null);
     if (!result.success) return callback?.({ error: result.reason });
 
-    broadcastGameState(room);
-    scheduleNextBotTurn(room);
+    afterMove(room);
     callback?.({ success: true });
   });
 
