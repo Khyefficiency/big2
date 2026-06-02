@@ -11,6 +11,7 @@ const S = {
   gameState:    null,  // latest from server
   totalScores:  {},    // { name: number } updated after each round
   handOrder:    [],    // user-defined card order (array of cardKeys)
+  intentionalDisconnect: false,
 };
 
 // ── Screens ────────────────────────────────────────────────────────────────────
@@ -31,6 +32,10 @@ function toast(msg, type = 'info') {
 
 // ── Card helpers ───────────────────────────────────────────────────────────────
 const RED_SUITS = new Set(['♥', '♦']);
+const RANKS = ['3','4','5','6','7','8','9','10','J','Q','K','A','2'];
+const SUITS = ['♦','♣','♥','♠'];
+const RANK_VALUE = Object.fromEntries(RANKS.map((rank, i) => [rank, i]));
+const SUIT_VALUE = Object.fromEntries(SUITS.map((suit, i) => [suit, i]));
 
 function makeCardEl(card, opts = {}) {
   const { selectable = false, selected = false, small = false } = opts;
@@ -65,6 +70,7 @@ function makeCardEl(card, opts = {}) {
 }
 
 function cardKey(card) { return `${card.rank}${card.suit}`; }
+function cardSortValue(card) { return RANK_VALUE[card.rank] * 4 + SUIT_VALUE[card.suit]; }
 
 function toggleCard(card, el) {
   if (!isMyTurn()) return;
@@ -134,7 +140,10 @@ function renderOpponent(gPlayer, position, activeIdx) {
     cardsEl.appendChild(more);
   }
 
-  if (gPlayer.seatIndex === activeIdx) {
+  if (gPlayer.disconnected) {
+    badgeEl.textContent = 'OFFLINE';
+    badgeEl.className   = 'opp-badge passed';
+  } else if (gPlayer.seatIndex === activeIdx) {
     badgeEl.textContent = gPlayer.isBot ? '🤖 Thinking…' : '▶ Their turn';
     badgeEl.className   = 'opp-badge active';
   } else if (gPlayer.passed) {
@@ -205,6 +214,43 @@ function renderMyHand(myHand) {
     addDragToReorder(el, handEl);
     handEl.appendChild(el);
   });
+}
+
+function applyHandOrder(cards) {
+  S.handOrder = cards.map(cardKey);
+  S.selectedCards = [];
+  renderMyHand(S.gameState?.myHand || []);
+  updateActionBar();
+}
+
+function sortHand(mode) {
+  const hand = [...(S.gameState?.myHand || [])];
+  if (hand.length === 0) return;
+
+  const rankCounts = hand.reduce((counts, card) => {
+    counts[card.rank] = (counts[card.rank] || 0) + 1;
+    return counts;
+  }, {});
+
+  if (mode === 'suit') {
+    hand.sort((a, b) => SUIT_VALUE[a.suit] - SUIT_VALUE[b.suit] || RANK_VALUE[a.rank] - RANK_VALUE[b.rank]);
+  } else if (mode === 'pairs') {
+    hand.sort((a, b) =>
+      rankCounts[b.rank] - rankCounts[a.rank] ||
+      RANK_VALUE[a.rank] - RANK_VALUE[b.rank] ||
+      SUIT_VALUE[a.suit] - SUIT_VALUE[b.suit]
+    );
+  } else if (mode === 'combos') {
+    hand.sort((a, b) =>
+      SUIT_VALUE[a.suit] - SUIT_VALUE[b.suit] ||
+      RANK_VALUE[a.rank] - RANK_VALUE[b.rank] ||
+      cardSortValue(a) - cardSortValue(b)
+    );
+  } else {
+    hand.sort((a, b) => cardSortValue(a) - cardSortValue(b));
+  }
+
+  applyHandOrder(hand);
 }
 
 // ── Drag-to-reorder (mouse + touch) ────────────────────────────────────────────
@@ -300,17 +346,20 @@ function renderScoreBar() {
 function updateActionBar() {
   const btnPlay  = document.getElementById('btn-play');
   const btnPass  = document.getElementById('btn-pass');
+  const btnCancel = document.getElementById('btn-cancel-paused');
   const countEl  = document.getElementById('play-count');
   const msgEl    = document.getElementById('turn-msg');
   const myTurn   = isMyTurn();
+  const isPaused = S.gameState?.status === 'paused';
 
   countEl.textContent = S.selectedCards.length;
-  btnPlay.disabled = !myTurn || S.selectedCards.length === 0;
-  btnPass.disabled = !myTurn || isLeading();
+  btnPlay.disabled = isPaused || !myTurn || S.selectedCards.length === 0;
+  btnPass.disabled = isPaused || !myTurn || isLeading();
+  btnCancel.classList.toggle('hidden', !isPaused);
 
   if (!S.gameState || S.gameState.status !== 'playing') {
-    msgEl.textContent = '';
-    msgEl.className   = 'turn-msg';
+    msgEl.textContent = isPaused ? 'Game paused — waiting for reconnect' : '';
+    msgEl.className   = isPaused ? 'turn-msg others-turn' : 'turn-msg';
     return;
   }
 
@@ -359,6 +408,25 @@ function passRound() {
   });
 }
 
+function leaveRoom() {
+  S.socket.emit('room:leave', {}, (res) => {
+    if (res?.error) return toast(res.error, 'error');
+    S.gameState   = null;
+    S.totalScores = {};
+    S.isHost      = false;
+    S.roomCode    = '';
+    S.name        = '';
+    S.seatIndex   = -1;
+    S.handOrder   = [];
+    S.selectedCards = [];
+    clearSession();
+    showScreen('screen-landing');
+    S.intentionalDisconnect = true;
+    S.socket.disconnect();
+    connect();
+  });
+}
+
 // ── Game Over Screen ───────────────────────────────────────────────────────────
 function showGameOver(data) {
   if (data.breakdown) {
@@ -403,10 +471,11 @@ function renderLobby(state) {
     const player = state.players.find(p => p.seatIndex === i);
     if (player) {
       const isBot = player.isBot;
+      const isOffline = player.disconnected;
       row.innerHTML = `
         <div class="seat-num">${i + 1}</div>
         <div class="seat-name">${isBot ? '🤖 ' : ''}${player.name}</div>
-        ${i === 0 ? '<div class="host-tag">HOST</div>' : (isBot ? '<div class="bot-tag">BOT</div>' : '')}`;
+        ${isOffline ? '<div class="bot-tag">OFFLINE</div>' : (i === 0 ? '<div class="host-tag">HOST</div>' : (isBot ? '<div class="bot-tag">BOT</div>' : ''))}`;
     } else {
       row.innerHTML = `
         <div class="seat-num">${i + 1}</div>
@@ -472,6 +541,7 @@ function connect() {
   });
 
   S.socket.on('connect', () => {
+    S.intentionalDisconnect = false;
     console.log('socket connected:', S.socket.id);
 
     // Try to restore from memory first, then fall back to sessionStorage
@@ -491,7 +561,7 @@ function connect() {
           S.isHost    = res.isHost;
           saveSession();
           toast('Reconnected!', 'success');
-          if (res.roomStatus === 'playing') showScreen('screen-game');
+          if (res.roomStatus === 'playing' || res.roomStatus === 'paused') showScreen('screen-game');
           else showScreen('screen-lobby');
         }
       });
@@ -499,6 +569,7 @@ function connect() {
   });
 
   S.socket.on('disconnect', () => {
+    if (S.intentionalDisconnect) return;
     toast('Connection lost — reconnecting…', 'error');
   });
 
@@ -512,7 +583,7 @@ function connect() {
   });
 
   S.socket.on('room:player_dropped', ({ name }) => {
-    toast(`${name} dropped — waiting for reconnect…`, 'error');
+    toast(`${name} dropped — game paused.`, 'error');
   });
 
   S.socket.on('room:player_reconnected', ({ name }) => {
@@ -538,6 +609,18 @@ function connect() {
 
   S.socket.on('game:over', (data) => {
     showGameOver(data);
+  });
+
+  S.socket.on('game:paused', ({ name }) => {
+    toast(`${name} disconnected. Game paused.`, 'error');
+  });
+
+  S.socket.on('game:cancelled', ({ reason }) => {
+    toast(reason, 'error');
+    S.gameState = null;
+    S.selectedCards = [];
+    S.handOrder = [];
+    showScreen('screen-lobby');
   });
 
   S.socket.on('game:aborted', ({ reason }) => {
@@ -613,11 +696,26 @@ function init() {
     });
   });
 
+  // Leave lobby
+  document.getElementById('btn-lobby-leave').addEventListener('click', leaveRoom);
+
+  document.getElementById('sort-rank').addEventListener('click', () => sortHand('rank'));
+  document.getElementById('sort-suit').addEventListener('click', () => sortHand('suit'));
+  document.getElementById('sort-pairs').addEventListener('click', () => sortHand('pairs'));
+  document.getElementById('sort-combos').addEventListener('click', () => sortHand('combos'));
+
   // Play
   document.getElementById('btn-play').addEventListener('click', playCards);
 
   // Pass
   document.getElementById('btn-pass').addEventListener('click', passRound);
+
+  // Cancel a paused game without awarding points
+  document.getElementById('btn-cancel-paused').addEventListener('click', () => {
+    S.socket.emit('game:cancel_paused', {}, (res) => {
+      if (res?.error) toast(res.error, 'error');
+    });
+  });
 
   // Rematch
   document.getElementById('btn-rematch').addEventListener('click', () => {
@@ -627,19 +725,7 @@ function init() {
   });
 
   // Leave
-  document.getElementById('btn-leave').addEventListener('click', () => {
-    S.gameState   = null;
-    S.totalScores = {};
-    S.isHost      = false;
-    S.roomCode    = '';
-    S.name        = '';
-    S.seatIndex   = -1;
-    S.handOrder   = [];
-    clearSession();
-    showScreen('screen-landing');
-    S.socket.disconnect();
-    connect();
-  });
+  document.getElementById('btn-leave').addEventListener('click', leaveRoom);
 }
 
 document.addEventListener('DOMContentLoaded', init);

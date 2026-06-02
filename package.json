@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node test-logic.js"
+    "test": "node test-logic.js && node test-edge-cases.js && node test-scoring.js && node test-disconnect-policy.js"
   },
   "engines": {
     "node": ">=18.0.0"

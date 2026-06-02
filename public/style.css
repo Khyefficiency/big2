@@ -47,6 +47,7 @@ html, body {
 .btn-secondary { background: #444; color: #fff; }
 .btn-play      { background: var(--gold); color: #222; min-width: 130px; }
 .btn-pass      { background: #555; color: #fff; }
+.btn-cancel    { background: #8e3b46; color: #fff; }
 
 /* ── Landing ───────────────────────────────────────────────────── */
 #screen-landing {
@@ -65,7 +66,29 @@ html, body {
   backdrop-filter: blur(6px);
 }
 
-.game-title   { font-size: 2.4rem; letter-spacing: 1px; }
+.game-title {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-size: 2.4rem;
+  letter-spacing: 1px;
+}
+.title-card {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 48px;
+  border-radius: 5px;
+  background: #fff;
+  color: #111;
+  border: 1px solid rgba(0,0,0,.2);
+  box-shadow: 0 3px 8px var(--shadow);
+  font-size: .95rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  transform: rotate(-2deg);
+}
 .game-subtitle { color: var(--muted); margin: 4px 0 28px; font-size: .95rem; }
 
 .form-group { text-align: left; margin-bottom: 20px; }
@@ -91,9 +114,9 @@ html, body {
 
 .join-row { display: flex; gap: 8px; }
 .join-row #input-code {
-  width: 120px;
+  width: 116px;
   text-transform: uppercase;
-  letter-spacing: 4px;
+  letter-spacing: 2px;
   font-weight: 700;
   text-align: center;
 }
@@ -171,13 +194,16 @@ html, body {
 }
 .lobby-status { color: var(--muted); font-size: .9rem; margin-bottom: 16px; }
 .lobby-bot-controls {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 8px;
   margin-bottom: 12px;
 }
 .btn-bot {
-  flex: 1;
-  padding: 8px 12px;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 9px 12px;
   font-size: .85rem;
   background: #3a7bd5;
   color: #fff;
@@ -401,6 +427,24 @@ html, body {
   flex-shrink: 0;
 }
 
+.hand-tools {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.sort-btn {
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 999px;
+  background: rgba(255,255,255,.08);
+  color: var(--text);
+  font-size: .76rem;
+  font-weight: 700;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.sort-btn:active { transform: scale(.97); }
+
 .my-hand {
   display: flex;
   justify-content: center;
@@ -513,14 +557,14 @@ html, body {
 
   /* Cards — readable but compact */
   :root {
-    --card-w:  48px;
-    --card-h:  68px;
+    --card-w:  54px;
+    --card-h:  76px;
     --card-rad: 5px;
   }
 
-  .card .corner .rank  { font-size: 12px; }
-  .card .corner .suit  { font-size: 9px; }
-  .card .center-suit   { font-size: 20px; }
+  .card .corner .rank  { font-size: 13px; }
+  .card .corner .suit  { font-size: 10px; }
+  .card .center-suit   { font-size: 22px; }
 
   /* Score bar — single compact line */
   .score-bar {
@@ -564,15 +608,31 @@ html, body {
   }
   .opp-cards { max-width: 70px; gap: 1px; }
 
-  /* Overlap — fits 13 cards on 390px */
-  .my-hand .card { margin-right: -24px; }
+  /* Keep mobile hands readable; horizontal scroll beats hiding half the cards. */
+  .my-hand .card { margin-right: -12px; }
 
   /* Compact my-section */
-  .my-section { padding: 6px 8px; }
+  .my-section { padding: 7px 8px 8px; }
 
   .my-hand {
-    min-height: calc(var(--card-h) + 14px);
-    padding-top: 2px;
+    justify-content: flex-start;
+    min-height: calc(var(--card-h) + 30px);
+    padding: 16px 24px 8px;
+    scroll-padding-inline: 24px;
+  }
+
+  .hand-tools {
+    justify-content: flex-start;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 0 4px 2px;
+    scrollbar-width: none;
+  }
+  .hand-tools::-webkit-scrollbar { display: none; }
+  .sort-btn {
+    flex: 0 0 auto;
+    font-size: .68rem;
+    padding: 6px 10px;
   }
 
   .action-bar {
@@ -592,6 +652,24 @@ html, body {
 
   .btn { padding: 8px 14px; font-size: 13px; }
   .btn-play { min-width: 90px; }
+  .btn-bot { min-height: 48px; white-space: normal; }
+
+  .game-title {
+    gap: 9px;
+    font-size: 2rem;
+    letter-spacing: 0;
+  }
+  .title-card {
+    width: 30px;
+    height: 42px;
+    font-size: .8rem;
+  }
+  .join-row #input-code {
+    width: min(42vw, 132px);
+    min-width: 96px;
+    letter-spacing: 1.5px;
+    font-size: 14px;
+  }
 
   /* Table area — less vertical padding */
   .table-area { gap: 6px; min-height: 120px; }
@@ -656,10 +734,13 @@ html, body {
 
   .my-section { padding: 4px 6px; }
   .my-hand {
-    min-height: calc(var(--card-h) + 10px);
-    padding-top: 0;
+    justify-content: flex-start;
+    min-height: calc(var(--card-h) + 18px);
+    padding: 8px 18px 4px;
   }
-  .my-hand .card { margin-right: -16px; }
+  .my-hand .card { margin-right: -8px; }
+  .hand-tools { margin-bottom: 3px; }
+  .sort-btn { font-size: .58rem; padding: 4px 8px; }
 
   .action-bar { margin-top: 4px; gap: 6px; }
   .turn-msg   { font-size: .65rem; padding: 3px 7px; max-width: 120px; }
